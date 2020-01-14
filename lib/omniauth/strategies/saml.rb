@@ -35,18 +35,9 @@ module OmniAuth
 
       def request_phase
         authn_request = OneLogin::RubySaml::Authrequest.new
-
-        options[:assertion_consumer_service_url] ||= callback_url
-        settings = OneLogin::RubySaml::Settings.new(options)
-
-        if options[:sptype] != false
-          settings.extensions[:sptype] = options[:sptype]
-        end
-        if options[:auth_request_include_request_attributes] == true
-          settings.extensions[:requested_attributes] = with_requested_attributes
-        end
-
-        redirect(authn_request.create(settings, additional_params_for_authn_request))
+       with_settings do |settings|
+            redirect(authn_request.create(settings, additional_params_for_authn_request))
+       end
       end
 
       def with_requested_attributes
@@ -234,7 +225,24 @@ module OmniAuth
 
       def with_settings
         options[:assertion_consumer_service_url] ||= callback_url
-        yield OneLogin::RubySaml::Settings.new(options)
+        settings = OneLogin::RubySaml::Settings.new(options)
+
+       log :info, 'with_settings called from %s' % [caller[0][/`([^']*)'/, 1]]
+       log :info, caller[0][/`([^']*)'/, 1].inspect
+
+       if caller[0][/`([^']*)'/, 1] == 'request_phase'
+         log :info, 'special settings for request_phase'
+
+          if options[:sptype] != false
+           log :info, 'sptype %s' % [options[:sptype]]
+            settings.extensions[:sptype] = options[:sptype]
+          end
+          if options[:auth_request_include_request_attributes] == true
+            settings.extensions[:requested_attributes] = with_requested_attributes
+          end
+       end
+
+       yield settings
       end
 
       def validate_fingerprint(settings)
