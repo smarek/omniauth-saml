@@ -35,9 +35,9 @@ module OmniAuth
 
       def request_phase
         authn_request = OneLogin::RubySaml::Authrequest.new
-       with_settings do |settings|
-            redirect(authn_request.create(settings, additional_params_for_authn_request))
-       end
+        with_settings do |settings|
+          redirect(authn_request.create(settings, additional_params_for_authn_request))
+        end
       end
 
       def with_requested_attributes
@@ -143,13 +143,20 @@ module OmniAuth
         response.attributes["fingerprint"] = settings.idp_cert_fingerprint
         response.soft = false
 
+        if response.status_code.nil_or_empty?
+          handle_logout_response(raw_response, settings)
+          return
+        end
+
         response.is_valid?
         @name_id = response.name_id
+        @name_id_format = response.name_id_format
         @session_index = response.sessionindex
         @attributes = response.attributes
         @response_object = response
 
         session["saml_uid"] = @name_id
+        session["saml_uid_format"] = @name_id_format
         session["saml_session_index"] = @session_index
         yield
       end
@@ -158,12 +165,16 @@ module OmniAuth
         if request.params.has_key?("RelayState") && request.params["RelayState"] != ""
           request.params["RelayState"]
         else
-          slo_default_relay_state = options.slo_default_relay_state
+          slo_default_relay_state = options[:slo_default_relay_state]
           if slo_default_relay_state.respond_to?(:call)
             if slo_default_relay_state.arity == 1
               slo_default_relay_state.call(request)
             else
               slo_default_relay_state.call
+            end
+          elsif !!slo_default_relay_state
+            with_settings do |settings|
+              settings[:assertion_consumer_service_url]
             end
           else
             slo_default_relay_state
@@ -182,6 +193,7 @@ module OmniAuth
         session.delete("saml_uid")
         session.delete("saml_transaction_id")
         session.delete("saml_session_index")
+        session.delete("saml_uid_format")
 
         redirect(slo_relay_state)
       end
@@ -216,6 +228,10 @@ module OmniAuth
           settings.name_identifier_value = session["saml_uid"]
         end
 
+        if settings.name_identifier_format.nil?
+          settings.name_identifier_format = session["saml_uid_format"]
+        end
+
         if settings.sessionindex.nil?
           settings.sessionindex = session["saml_session_index"]
         end
@@ -227,22 +243,17 @@ module OmniAuth
         options[:assertion_consumer_service_url] ||= callback_url
         settings = OneLogin::RubySaml::Settings.new(options)
 
-       log :info, 'with_settings called from %s' % [caller[0][/`([^']*)'/, 1]]
-       log :info, caller[0][/`([^']*)'/, 1].inspect
-
-       if caller[0][/`([^']*)'/, 1] == 'request_phase'
-         log :info, 'special settings for request_phase'
+        if caller[0][/`([^']*)'/, 1] == 'request_phase'
 
           if options[:sptype] != false
-           log :info, 'sptype %s' % [options[:sptype]]
             settings.extensions[:sptype] = options[:sptype]
           end
           if options[:auth_request_include_request_attributes] == true
             settings.extensions[:requested_attributes] = with_requested_attributes
           end
-       end
+        end
 
-       yield settings
+        yield settings
       end
 
       def validate_fingerprint(settings)
@@ -293,7 +304,12 @@ module OmniAuth
       def other_phase_for_spslo
         if options.idp_slo_target_url
           with_settings do |settings|
-            redirect(generate_logout_request(settings))
+            logout_request = generate_logout_request(settings)
+
+            # Actually log out this session
+            options[:idp_slo_session_destroy].call @env, session
+
+            redirect(logout_request)
           end
         else
           Rack::Response.new("Not Implemented", 501, {"Content-Type" => "text/html"}).finish
