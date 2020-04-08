@@ -46,7 +46,7 @@ module OmniAuth
         end
         attrs = []
         options[:request_attributes].each do |orig_attr|
-          attrs.push(OneLogin::RubySaml::RequestedAttribute.new(Name: orig_attr[:name], FriendlyName: orig_attr[:friendly_name], NameFormat: orig_attr[:name_format], isRequired: !!orig_attr[:is_required] == orig_attr[:is_required] ? orig_attr[:is_required] : true ))
+          attrs.push(OneLogin::RubySaml::RequestedAttribute.new(Name: orig_attr[:name], FriendlyName: orig_attr[:friendly_name], NameFormat: orig_attr[:name_format], isRequired: !!orig_attr[:is_required] == orig_attr[:is_required] ? orig_attr[:is_required] : false ))
         end
         attrs
       end
